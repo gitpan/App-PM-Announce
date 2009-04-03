@@ -1,0 +1,34 @@
+---
+abstract: ~
+author:
+  - 'Robert Krimen <rkrimen@cpan.org>'
+build_requires:
+  Test::Most: 0
+distribution_type: module
+generated_by: 'Module::Install version 0.79'
+license: perl
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: App-PM-Announce
+no_index:
+  directory:
+    - inc
+    - t
+requires:
+  Config::General: 0
+  Config::JFDI: 0
+  DateTime: 0
+  File::HomeDir: 0
+  Getopt::Chain: 0
+  HTML::TreeBuilder: 0
+  HTTP::Request::Common: 0
+  Moose: 0
+  MooseX::LogDispatch: 0
+  Path::Class: 0
+  String::Util: 0
+  WWW::Mechanize: 0
+resources:
+  license: http://dev.perl.org/licenses/
+  repository: http://github.com/robertkrimen/app-pm-announce/tree/master
+version: 0.01_1
