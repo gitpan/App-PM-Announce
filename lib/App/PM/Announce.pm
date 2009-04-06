@@ -7,30 +7,53 @@ use strict;
 
 App::PM::Announce -
 
+
 =head1 VERSION
 
-Version 0.01_1
+Version 0.02
 
 =cut
 
-our $VERSION = '0.01_1';
+our $VERSION = '0.02';
 
 use Moose;
-with 'MooseX::LogDispatch';
+#with 'MooseX::LogDispatch';
 
 use File::HomeDir;
 use Path::Class;
 use Config::JFDI;
 use Config::General;
 use String::Util qw/trim/;
+use Data::UUID;
+use Document::Stembolt;
+use DateTimeX::Easy;
+use Log::Dispatch;
+use Log::Dispatch::Screen;
+use Log::Dispatch::File;
 
+use App::PM::Announce::History;
 use App::PM::Announce::Feed::meetup;
 use App::PM::Announce::Feed::linkedin;
-use App::PM::Announce::Feed::greymatter121c;
+use App::PM::Announce::Feed::greymatter;
 
 sub BUILD {
     my $self = shift;
     $self->startup;
+}
+
+has debug => qw/is ro lazy_build 1/;
+sub _build_debug {
+    return $ENV{APP_PM_ANNOUNCE_DEBUG} ? 1 : 0;
+}
+
+has verbose => qw/is ro lazy_build 1/;
+sub _build_verbose {
+    return 0;
+}
+
+has dry_run => qw/is ro lazy_build 1/;
+sub _build_dry_run {
+    return 0;
 }
 
 has home_dir => qw/is ro lazy_build 1/;
@@ -70,13 +93,35 @@ sub _build_config {
     )->getall };
 }
 
+has log_file => qw/is ro lazy_build 1/;
+sub _build_log_file {
+    return shift->home_dir->file( 'log' );
+}
+
+has logger => qw/is ro isa Log::Dispatch lazy_build 1/;
+sub _build_logger {
+    my $self = shift;
+    my $logger = Log::Dispatch->new( callbacks => sub {
+        my $message = join ' ',
+                "[@{[ DateTime->now->set_time_zone( 'local' ) ]}]",
+                "[$_[3]]",
+                "$_[1]\n",
+        ;
+#        $message = "# $message" if $_[3] eq 'debug';
+        return $message;
+    } );
+    $logger->add( Log::Dispatch::Screen->new( name => 'screen', min_level => $self->debug ? 'debug' : 'info', stderr => 1 ) ) if $self->debug;
+#    $logger->add( Log::Dispatch::File->new( name => 'file', mode => 'append', min_level => 'info', filename => $self->log_file.'' ) );
+    return $logger;
+}
+
 has feed => qw/is ro isa HashRef lazy_build 1/;
 sub _build_feed {
     my $self = shift;
     return { 
         meetup => $self->_build_meetup_feed,
         linkedin => $self->_build_linkedin_feed,
-        greymatter121c => $self->_build_greymatter121c_feed,
+        greymatter => $self->_build_greymatter_feed,
     };
 }
 
@@ -92,10 +137,10 @@ sub _build_meetup_feed {
     );
 }
 
-sub _build_greymatter121c_feed {
+sub _build_greymatter_feed {
     my $self = shift;
-    return undef unless my $given = $self->config->{feed}->{greymatter121c};
-    return App::PM::Announce::Feed::greymatter121c->new(
+    return undef unless my $given = $self->config->{feed}->{greymatter};
+    return App::PM::Announce::Feed::greymatter->new(
         app => $self,
         username => $given->{username},
         password => $given->{password},
@@ -114,24 +159,67 @@ sub _build_linkedin_feed {
     );
 }
 
+has history => qw/is ro isa App::PM::Announce::History lazy_build 1/;
+sub _build_history {
+    my $self = shift;
+    return App::PM::Announce::History->new( app => $self );
+}
+
 sub startup {
     my $self = shift;
 
+    $self->logger->debug( "debug = " . $self->debug );
+    $self->logger->debug( "verbose = " . $self->verbose );
+    $self->logger->debug( "dry-run = " . $self->dry_run );
+
     my $home_dir = $self->home_dir;
-    $self->logger->debug( "home_dir is $home_dir" );
+    $self->logger->debug( "home_dir = $home_dir" );
 
     unless (-d $home_dir) {
-        $self->logger->debug( "making $home_dir because it does not exist" );
+        $self->logger->debug( "Making $home_dir because it does not exist" );
         $home_dir->mkpath;
     }
 
+    # Gotta do this here
+    $self->logger->add( Log::Dispatch::File->new( name => 'file', mode => 'append', min_level => 'info', filename => $self->log_file.'' ) );
+
     my $config_file = $self->config_file;
-    $self->logger->debug( "config_file is $config_file" );
+    $self->logger->debug( "config_file = $config_file" );
+
+    my $log_file = $self->log_file;
+    $self->logger->debug( "log_file = $log_file" );
 
     unless (-f $config_file) {
-        $self->logger->debug( "making $config_file stub because it does not exist" );
+        $self->logger->debug( "Making $config_file stub because it does not exist" );
         $config_file->openw->print( <<_END_ );
-# This is a config stub
+# vim: set filetype=configgeneral:
+
+# Replace 'An-Example-Group' with the real resource for your Meetup group
+# Replace <venue> with the venue number you want to be the default
+
+#<feed meetup>
+#    username
+#    password
+#    uri http://www.meetup.com/An-Example-Group/calendar/?action=new
+#    venue <venue>
+#</feed>
+
+# Replace <gid> with the gid of your group
+
+#<feed linkedin>
+#    username
+#    password
+#    uri http://www.linkedin.com/groupAnswers?start=&gid=<gid>
+#</feed>
+
+# Replace 'example.com' with a real host
+
+#<feed greymatter>
+#    username
+#    password
+#    uri http://example.com/cgi-bin/greymatter/gm.cgi
+#</feed>
+
 _END_
     }
 }
@@ -140,39 +228,200 @@ _END_
 
 sub announce {
     my $self = shift;
-    my %event = @_;
+    my %event;
+    if (ref $_[0]) {
+        my $document = $self->parse( @_ );
+        %event = %{ $document->header };
+        $event{description} = $document->body;
+    }
+    else {
+        %event = @_;
+    }
 
     { # Validate, parse, and filter.
 
         $event{$_} = trim $event{$_} for qw/title venue/;
 
-        die "Wasn't given a title for the event" unless $event{title};
+        die "Wasn't given a UUID for the event\n" unless $event{uuid};
 
-        die "Wasn't given a venue for the event" unless $event{venue};
+        die "Wasn't given a title for the event\n" unless $event{title};
 
-        die "Wasn't given a date & time for the event" unless $event{datetime};
-        die "The date & time isn't a DateTime object" unless $event{datetime}->isa( 'DateTime' );
+#        die "Wasn't given a venue for the event\n" unless $event{venue};
+
+        die "Wasn't given a date & time for the event\n" unless $event{datetime};
+        die "The date & time isn't a DateTime object\n" unless $event{datetime}->isa( 'DateTime' );
     }
 
-    my $result;
+    my (@report, $event, $result);
+    my $uuid = $event{uuid};
+    $event = $self->history->find_or_insert( $uuid )->{data};
+    $self->history->update( $uuid => %event );
 
-    $result = $self->feed->{meetup}->announce( %event );
+    eval {
+        if ($event->{did_meetup}) {
+            $self->logger->debug( "Already posted to meetup, skipping" );
+            $self->logger->debug( "The Meetup link is " . $event->{meetup_link} ) if $event->{meetup_link};
+            push @report, "Already announced on meetup";
+        }
+        elsif ($self->feed->{meetup}) {
+            unless ($self->dry_run) {
+                die "Didn't announce on meetup" unless $result = $self->feed->{meetup}->announce( %event );
+                my $meetup_link = $event->{meetup_link} = $result->{meetup_link};
+                $self->logger->debug( "Meetup link is " . $meetup_link );
+                $self->logger->info( "\"$event{title}\" ($uuid) announced to meetup ($meetup_link) " );
+                $self->history->update( $uuid => did_meetup => 1, meetup_link => "$meetup_link" );
+                push @report, "Announced on meetup";
+            }
+            else {
+                push @report, "Would announce on meetup";
+            }
+        }
+        else {
+            $self->logger->debug( "No feed configured for meetup" );
+        }
 
-    $event{description} = [ $event{description}, $result->{meetup_uri} ];
+        die "Don't have a Meetup link" unless $self->dry_run || $event->{meetup_link};
 
-    $result = $self->feed->{linkedin}->announce( %event );
+#        $event{description} = [
+#            $event{description},
+#            "\nRSVP at Meetup - <a href=\"$event->{meetup_link}\">$event->{meetup_link}</a>"
+#        ];
 
-    $result = $self->feed->{greymatter121c}->announce( %event );
+        if ($event->{did_linkedin}) {
+            $self->logger->debug( "Already posted to linkedin, skipping" );
+            push @report, "Already announced on linkedin";
+        }
+        elsif ($self->feed->{linkedin}) {
+            unless ($self->dry_run) {
+                die "Didn't announce on linkedin" unless $result = $self->feed->{linkedin}->announce(
+                    %event,
+                    description => [
+                        $event{description},
+                        "RSVP at Meetup - $event->{meetup_link}",
+                    ],
+                );
+                $self->logger->info( "\"$event{title}\" ($uuid) announced to linkedin" );
+                $result = $self->history->update( $uuid => did_linkedin => 1 );
+                push @report, "Announced on linkedin";
+            }
+            else {
+                push @report, "Would announce on linkedin";
+            }
+        }
+        else {
+            $self->logger->debug( "No feed configured for linkedin" );
+        }
+
+        if ($event->{did_greymatter}) {
+            $self->logger->debug( "Already posted to greymatter, skipping" );
+            push @report, "Already announced on greymatter";
+        }
+        elsif ($self->feed->{greymatter}) {
+            unless ($self->dry_run) {
+                die "Didn't announce on greymatter" unless $result = $self->feed->{greymatter}->announce(
+                    %event,
+                    description => [
+                        $event{description},
+                        "\nRSVP at Meetup - <a href=\"$event->{meetup_link}\">$event->{meetup_link}</a>"
+                    ],
+                );
+                $self->logger->info( "\"$event{title}\" ($uuid) announced to greymatter" );
+                $result = $self->history->update( $uuid => did_greymatter => 1 );
+                push @report, "Announced on greymatter";
+            }
+            else {
+                push @report, "Would announce on greymatter";
+            }
+        }
+        else {
+            $self->logger->debug( "No feed configured for greymatter" );
+        }
+    };
+    if ($@) {
+        warn "Unable to announce \"$event{title}\" ($uuid)\n";
+        die $@;
+    }
+
+    $event = $self->history->fetch( $uuid )->{data};
+#    $self->logger->info("\"$event{title}\" is announced on", join ', ', map { $event->{"did_$_"} ? $_ : () } qw/meetup linkedin greymatter/);
+#    $self->logger->info("Meetup link is $event->{meetup_link}") if $event->{meetup_link};
+
+    return $event, \@report;
+    
+#    $result{done} = 1;
+#    return \%result;
+}
+
+sub parse {
+    my $self = shift;
+
+    die "Couldn't parse" unless my $document = Document::Stembolt::Content->read(shift);
+
+    my $datetime = $document->header->{datetime};
+    die "You didn't give a datetime" unless $datetime;
+    die "Unable to parse ", $document->header->{datetime} unless $datetime = DateTimeX::Easy->parse( $datetime );
+    $document->header->{datetime} = $datetime;
+
+    return $document;
+}
+
+sub template {
+    my $self = shift;
+
+    my $uuid = Data::UUID->new->create_str;
+    my $datetime = DateTimeX::Easy->parse( '4th tuesday' );
+    my $venue = $self->config->{venue} || '';
+    $datetime = DateTimeX::Easy->parse( '3rd tuesday' ) unless $datetime;
+    $datetime->set(hour => 20, minute => 0, second => 0);
+
+    return <<_END_;
+# App-PM-Announce
+# You can leave 'venue' blank to use the default venue (per @{[ $self->config_file ]})
+# The 'datetime' field is the date & time that the event will take place. Any reasonable string should do (parsed via DateTimeX::Easy)
+---
+title: The title of the event
+venue: $venue
+datetime: $datetime
+uuid: $uuid
+---
+Put your multi-line description for the event here.
+Everything below the '---' is considered the description.
+_END_
 }
 
 =head1 SYNOPSIS
 
-    # From the command-line
-    ./pm-announce test
+    # Using the commandline...
+    pm-announce template > event.txt
+
+    # Edit event.txt with your editor of choice...
+    pm-announce announce < event.txt
 
 =head1 DESCRIPTION
 
-App::PM::Announce is a tool for creating and advertising PM meetings. More soon
+App::PM::Announce is a tool for creating and advertising PM meetings (on Meetup, LinkedIn, and blog software)
+
+    OPTIONS
+
+        verbose|v   Debugging mode. Be verbose when reporting
+        help|h|?    This help screen
+        dry-run|n   Don't actually login and announce, just show what would be done
+
+    COMMANDS
+
+        config              Check the config file (@{[ app->config_file ]})
+
+        history             Show announcement history
+
+        history <query>     Show announcement history for event <query>, where <query> should be enough of the uuid to be unambiguous
+
+        template            Print out a template to be used for input to the 'announce' command
+
+        announce            Read STDIN for the event information and make a post for each feed
+
+        test                Post a bogus event to a test meetup account, test linkedin account, and test greymatter account
+
+        help                This help screen
 
 =cut
 

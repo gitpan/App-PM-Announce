@@ -18,17 +18,29 @@ no_index:
 requires:
   Config::General: 0
   Config::JFDI: 0
+  DBD::SQLite: 0
+  DBI: 0
+  DBIx::Simple: 0
+  Data::Dump: 0
+  Data::UUID: 0
+  Date::Manip: 0
   DateTime: 0
+  DateTimeX::Easy: 0
+  Document::Stembolt: 0
   File::HomeDir: 0
   Getopt::Chain: 0
   HTML::TreeBuilder: 0
   HTTP::Request::Common: 0
+  JSON: 0
+  Log::Dispatch: 0
   Moose: 0
-  MooseX::LogDispatch: 0
   Path::Class: 0
+  SQL::Script: 0
+  Scalar::Util: 0
   String::Util: 0
+  Text::Table: 0
   WWW::Mechanize: 0
 resources:
   license: http://dev.perl.org/licenses/
   repository: http://github.com/robertkrimen/app-pm-announce/tree/master
-version: 0.01_1
+version: 0.02

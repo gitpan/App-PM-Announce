@@ -6,7 +6,6 @@ use strict;
 use Moose;
 extends 'App::PM::Announce::Feed';
 
-has uri => qw/is ro required 1/;
 has venue => qw/is ro/;
 
 sub announce {
@@ -21,7 +20,7 @@ sub announce {
 
     $self->get("http://www.meetup.com/login/");
 
-    $self->logger->debug( "login as $username/$password" );
+    $self->logger->debug( "Login as $username / $password" );
 
     $self->submit_form(
         fields => {
@@ -36,6 +35,9 @@ sub announce {
 
     $self->get($uri);
 
+    my $hour12 = $datetime->hour;
+    $hour12 -= 12 if $hour12 > 12;
+    $hour12 = 12 unless $hour12;
     $self->submit_form(
         fields => {
             title => $self->format( \%event => 'title' ),
@@ -45,7 +47,7 @@ sub announce {
             'event.day' => $datetime->day,
             'event.month' => $datetime->month,
             'event.year' => $datetime->year,
-            'event.hour12' => $datetime->strftime('%h'),
+            'event.hour12' => $hour12,
             'event.minute' => $datetime->minute,
             'event.ampm' => $datetime->hour >= 12 ? 'PM' : 'AM',
         },
@@ -63,12 +65,12 @@ sub announce {
 
     my $href = $a->attr( 'href' );
 
-    my $meetup_uri = URI->new( $href );
-    $meetup_uri->query( undef );
+    my $meetup_link = URI->new( $href );
+    $meetup_link->query( undef );
 
-    $self->logger->debug( "submitted to meetup at $uri" );
+    $self->logger->debug( "Submitted to meetup at $uri" );
 
-    return { meetup_uri => $meetup_uri };
+    return { meetup_link => $meetup_link };
 }
 
 1;

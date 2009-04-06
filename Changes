@@ -1,0 +1,22 @@
+TODO:
+    - Image fetching/uploading
+    - Support more Meetup options
+
+0.02 Sunday April 05 19:14:06 PDT 2009:
+    - Improved template (with help)
+    - Fixed link formatting for linkedin/greymatter
+    - Make sure to post the right event hour
+    - Add 'help' screen and documentation
+    - Generate better config stub
+    - Config checker
+    - Improve history display 
+    - Implement dry-run
+    - Improve logging
+    - Add reporting
+    - Datetime as "* ago"
+    - Abort unless have meetup_uri
+    - Change greymatter121c => greymatter
+
+0.01_1 2009-04-02:
+    - Initial release
+
