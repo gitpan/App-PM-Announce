@@ -1,5 +1,5 @@
 ---
-abstract: ~
+abstract: 'Announce your PM meeting via Meetup and LinkedIn'
 author:
   - 'Robert Krimen <rkrimen@cpan.org>'
 build_requires:
@@ -44,4 +44,4 @@ requires:
 resources:
   license: http://dev.perl.org/licenses/
   repository: http://github.com/robertkrimen/app-pm-announce/tree/master
-version: 0.021
+version: 0.022
