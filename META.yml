@@ -41,7 +41,8 @@ requires:
   String::Util: 0
   Text::Table: 0
   WWW::Mechanize: 0
+  WWW::UsePerl::Journal::Post: 0
 resources:
   license: http://dev.perl.org/licenses/
   repository: http://github.com/robertkrimen/app-pm-announce/tree/master
-version: 0.022
+version: 0.023
