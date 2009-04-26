@@ -22,7 +22,7 @@ requires:
   DBD::SQLite: 0
   DBI: 0
   DBIx::Simple: 0
-  Data::Dump: 0
+  Data::Dump: 1.14
   Data::UUID: 0
   Date::Manip: 0
   DateTime: 0
@@ -32,7 +32,7 @@ requires:
   Getopt::Chain: 0
   HTML::TreeBuilder: 0
   HTTP::Request::Common: 0
-  JSON: 0
+  JSON: 2
   Log::Dispatch: 0
   Moose: 0
   Path::Class: 0
@@ -45,4 +45,4 @@ requires:
 resources:
   license: http://dev.perl.org/licenses/
   repository: http://github.com/robertkrimen/app-pm-announce/tree/master
-version: 0.023
+version: 0.024
